@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrustProof - Cryptographic Verification for AI Outputs</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js"></script>
+    <style>
+        .gradient-blue {
+            background: linear-gradient(135deg, #0066ff 0%, #0052cc 100%);
+        }
+        .gradient-purple {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .shimmer {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: shimmer 2s infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .tree-node {
+            transition: all 0.3s ease;
+        }
+        .tree-node:hover {
+            transform: scale(1.05);
+        }
+        .verification-badge {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyDemoKey",
+            authDomain: "trustproof-demo.firebaseapp.com",
+            projectId: "trustproof-demo",
+            storageBucket: "trustproof-demo.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abc123def456"
+        };
+
+        // Initialize Firebase (wrapped in try-catch for demo purposes)
+        let auth = null;
+        try {
+            firebase.initializeApp(firebaseConfig);
+            auth = firebase.auth();
+        } catch (e) {
+            console.log("Firebase initialization skipped for demo");
+        }
+
+        // Utility Functions
+        const generateHash = () => {
+            const chars = '0123456789abcdef';
+            let hash = '';
+            for (let i = 0; i < 64; i++) {
+                hash += chars.charAt(Math.floor(Math.random() * 16));
+            }
+            return hash;
+        };
+
+        const generateMerkleTree = (depth = 3) => {
+            const tree = {
+                id: generateHash().substring(0, 16),
+                level: 0,
+                hash: generateHash(),
+                children: []
+            };
+
+            const buildTree = (node, currentDepth) => {
+                if (currentDepth < depth) {
+                    for (let i = 0; i < 2; i++) {
+                        const child = {
+                            id: generateHash().substring(0, 16),
+                            level: currentDepth + 1,
+                            hash: generateHash(),
+                            children: []
+                        };
+                        buildTree(child, currentDepth + 1);
+                        node.children.push(child);
+                    }
+                }
+            };
+
+            buildTree(tree, 0);
+            return tree;
+        };
+
+        // Mock Proof Generator
+        const generateProof = (modelOutput) => {
+            return {
+                id: generateHash().substring(0, 32),
+                hash: generateHash(),
+                modelOutput: modelOutput.substring(0, 50),
+                model: ["GPT-4", "Claude", "Llama-2", "Gemini"][Math.floor(Math.random() * 4)],
+                status: ["verified", "pending", "failed"][Math.floor(Math.random() * 3)],
+                timestamp: new Date().toISOString(),
+                confidence: Math.floor(Math.random() * 40 + 60),
+                merkleRoot: generateHash(),
+                proofPath: Array(4).fill(null).map(() => generateHash().substring(0, 16))
+            };
+        };
+
+        // Components
+        const Navbar = ({ currentUser, onLogout, onNavigate }) => (
+            <nav class="bg-white border-b border-gray-200 sticky top-0 z-50">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div class="flex justify-between items-center h-16">
+                        <div class="flex items-center gap-2 cursor-pointer" onClick={() => onNavigate('landing')}>
+                            <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                                <span class="text-white font-bold">T</span>
+                            </div>
+                            <span class="text-xl font-bold text-gray-900">TrustProof</span>
+                        </div>
+                        <div class="hidden md:flex gap-8">
+                            {!currentUser && (
+                                <>
+                                    <button onClick={() => onNavigate('landing')} class="text-gray-700 hover:text-blue-600">Features</button>
+                                    <button onClick={() => onNavigate('landing')} class="text-gray-700 hover:text-blue-600">Pricing</button>
+                                    <button onClick={() => onNavigate('landing')} class="text-gray-700 hover:text-blue-600">Docs</button>
+                                </>
+                            )}
+                            {currentUser && (
+                                <>
+                                    <button onClick={() => onNavigate('dashboard')} class="text-gray-700 hover:text-blue-600">Dashboard</button>
+                                    <button onClick={() => onNavigate('billing')} class="text-gray-700 hover:text-blue-600">Billing</button>
+                                </>
+                            )}
+                        </div>
+                        <div class="flex items-center gap-4">
+                            {currentUser ? (
+                                <>
+                                    <span class="text-sm text-gray-600">{currentUser.email}</span>
+                                    <button onClick={onLogout} class="px-4 py-2 text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50">Logout</button>
+                                </>
+                            ) : (
+                                <>
+                                    <button onClick={() => onNavigate('signin')} class="text-gray-700 hover:text-blue-600">Sign In</button>
+                                    <button onClick={() => onNavigate('signup')} class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Sign Up</button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </nav>
+        );
+
+        const LandingPage = ({ onNavigate }) => (
+            <>
+                {/* Hero Section */}
+                <section class="gradient-blue text-white py-20 px-4">
+                    <div class="max-w-4xl mx-auto text-center">
+                        <h1 class="text-5xl font-bold mb-6">Cryptographic Proof for AI Outputs</h1>
+                        <p class="text-xl text-blue-100 mb-8">Verify the integrity of AI model inferences with unbreakable Merkle tree proofs</p>
+                        <div class="flex gap-4 justify-center">
+                            <button onClick={() => onNavigate('signup')} class="px-8 py-3 bg-white text-blue-600 rounded-lg font-semibold hover:bg-blue-50">Get Started Free</button>
+                            <button onClick={() => onNavigate('landing')} class="px-8 py-3 border-2 border-white text-white rounded-lg font-semibold hover:bg-blue-700">Learn More</button>
+                        </div>
+                    </div>
+                </section>
+
+                {/* Features Section */}
+                <section class="py-20 px-4 bg-white">
+                    <div class="max-w-6xl mx-auto">
+                        <h2 class="text-4xl font-bold text-center mb-16">Features</h2>
+                        <div class="grid md:grid-cols-2 gap-12">
+                            <div class="p-8 border border-gray-200 rounded-xl hover:shadow-lg transition">
+                                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
+                                    <span class="text-2xl">ð</span>
+                                </div>
+                                <h3 class="text-2xl font-bold mb-3">SHA-256 Merkle Trees</h3>
+                                <p class="text-gray-600">Industry-standard cryptographic hashing with complete proof paths for verification audit trails</p>
+                            </div>
+                            <div class="p-8 border border-gray-200 rounded-xl hover:shadow-lg transition">
+                                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
+                                    <span class="text-2xl">ð§ </span>
+                                </div>
+                                <h3 class="text-2xl font-bold mb-3">Neural Network Proofs</h3>
+                                <p class="text-gray-600">Generate cryptographic proofs directly from neural network outputs with zero-knowledge properties</p>
+                            </div>
+                            <div class="p-8 border border-gray-200 rounded-xl hover:shadow-lg transition">
+                                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
+                                    <span class="text-2xl">â</span>
+                                </div>
+                                <h3 class="text-2xl font-bold mb-3">Inference Verification</h3>
+                                <p class="text-gray-600">Verify that AI outputs haven't been modified since generation with cryptographic certainty</p>
+                            </div>
+                            <div class="p-8 border border-gray-200 rounded-xl hover:shadow-lg transition">
+                                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
+                                    <span class="text-2xl">ð¡ï¸</span>
+                                </div>
+                                <h3 class="text-2xl font-bold mb-3">Tamper Detection</h3>
+                                <p class="text-gray-600">Detect any modification to proofs, hashes, or inference data with instant alerts</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {/* Pricing Section */}
+                <section class="py-20 px-4 bg-gray-50">
+                    <div class="max-w-6xl mx-auto">
+                        <h2 class="text-4xl font-bold text-center mb-16">Pricing Plans</h2>
+                        <div class="grid md:grid-cols-3 gap-8">
+                            {[
+                                { name: "Free", price: "$0", limit: "100 proofs/mo", features: ["SHA-256 Merkle trees", "Basic verification", "24-hour proof retention", "Community support"] },
+                                { name: "Pro", price: "$49", limit: "10K proofs/mo", features: ["All Free features", "Priority verification", "90-day retention", "Email support", "API access", "Custom integrations"] },
+                                { name: "Enterprise", price: "$199", limit: "Unlimited proofs", features: ["All Pro features", "Unlimited retention", "24/7 phone support", "Dedicated account manager", "SLA guarantee", "On-premise option"] }
+                            ].map((plan, idx) => (
+                                <div key={idx} class={`rounded-xl p-8 ${plan.name === 'Pro' ? 'bg-blue-600 text-white ring-2 ring-blue-400 transform scale-105' : 'bg-white border border-gray-200'}`}>
+                                    <h3 class="text-2xl font-bold mb-2">{plan.name}</h3>
+                                    <div class="text-4xl font-bold mb-2">{plan.price}<span class="text-lg">/mo</span></div>
+                                    <div class={`text-sm mb-6 ${plan.name === 'Pro' ? 'text-blue-100' : 'text-gray-600'}`}>{plan.limit}</div>
+                                    <ul class="space-y-3 mb-8">
+                                        {plan.features.map((f, i) => (
+                                            <li key={i} class="flex items-center gap-2">
+                                                <span class="text-green-500">â</span> {f}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    <button onClick={() => onNavigate('signup')} class={`w-full py-3 rounded-lg font-semibold transition ${plan.name === 'Pro' ? 'bg-white text-blue-600 hover:bg-blue-50' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>Get Started</button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+
+                {/* Trust & Compliance Section */}
+                <section class="py-20 px-4 bg-white">
+                    <div class="max-w-6xl mx-auto">
+                        <h2 class="text-4xl font-bold text-center mb-16">Enterprise Trust & Compliance</h2>
+                        <div class="grid md:grid-cols-4 gap-8">
+                            {[
+                                { icon: "ð", title: "SOC 2 Certified", desc: "Industry-leading security standards" },
+                                { icon: "âï¸", title: "GDPR Compliant", desc: "Full data privacy protection" },
+                                { icon: "ð", title: "Audit Ready", desc: "Complete proof audit trails" },
+                                { icon: "ð", title: "99.99% Uptime", desc: "Enterprise SLA guaranteed" }
+                            ].map((item, idx) => (
+                                <div key={idx} class="text-center">
+                                    <div class="text-4xl mb-3">{item.icon}</div>
+                                    <h3 class="font-bold text-lg mb-2">{item.title}</h3>
+                                    <p class="text-gray-600 text-sm">{item.desc}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+            </>
+        );
+
+        const SignInPage = ({ onNavigate, onAuthSuccess }) => {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+
+            const handleSignIn = async (e) => {
+                e.preventDefault();
+                try {
+                    if (auth) {
+                        const result = await auth.signInWithEmailAndPassword(email, password);
+                        onAuthSuccess(result.user);
+                    } else {
+                        // Demo mode
+                        onAuthSuccess({ email, uid: 'demo-user-' + Date.now() });
+                    }
+                } catch (err) {
+                    setError(err.message || 'Sign in failed');
+                }
+            };
+
+            return (
+                <div class="min-h-screen flex items-center justify-center px-4">
+                    <div class="w-full max-w-md">
+                        <div class="bg-white rounded-lg border border-gray-200 p-8">
+                            <h1 class="text-3xl font-bold text-center mb-2">Welcome Back</h1>
+                            <p class="text-center text-gray-600 mb-8">Sign in to your TrustProof account</p>
+
+                            {error && <div class="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error}</div>}
+
+                            <form onSubmit={handleSignIn} class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" placeholder="you@example.com" />
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" placeholder="â¢â¢â¢â¢â¢â¢â¢â¢" />
+                                </div>
+                                <button type="submit" class="w-full py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">Sign In</button>
+                            </form>
+
+                            <p class="text-center text-gray-600 mt-6">Don't have an account? <button onClick={() => onNavigate('signup')} class="text-blue-600 font-semibold hover:underline">Sign up</button></p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const SignUpPage = ({ onNavigate, onAuthSuccess }) => {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [confirmPassword, setConfirmPassword] = useState('');
+            const [error, setError] = useState('');
+
+            const handleSignUp = async (e) => {
+                e.preventDefault();
+                if (password !== confirmPassword) {
+                    setError('Passwords do not match');
+                    return;
+                }
+                try {
+                    if (auth) {
+                        const result = await auth.createUserWithEmailAndPassword(email, password);
+                        onAuthSuccess(result.user);
+                    } else {
+                        // Demo mode
+                        onAuthSuccess({ email, uid: 'demo-user-' + Date.now() });
+                    }
+                } catch (err) {
+                    setError(err.message || 'Sign up failed');
+                }
+            };
+
+            return (
+                <div class="min-h-screen flex items-center justify-center px-4">
+                    <div class="w-full max-w-md">
+                        <div class="bg-white rounded-lg border border-gray-200 p-8">
+                            <h1 class="text-3xl font-bold text-center mb-2">Create Account</h1>
+                            <p class="text-center text-gray-600 mb-8">Join TrustProof and verify your AI outputs</p>
+
+                            {error && <div class="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error}</div>}
+
+                            <form onSubmit={handleSignUp} class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" placeholder="you@example.com" />
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" placeholder="â¢â¢â¢â¢â¢â¢â¢â¢" />
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Confirm Password</label>
+                                    <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" placeholder="â¢â¢â¢â¢â¢â¢â¢â¢" />
+                                </div>
+                                <button type="submit" class="w-full py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">Create Account</button>
+                            </form>
+
+                            <p class="text-center text-gray-600 mt-6">Already have an account? <button onClick={() => onNavigate('signin')} class="text-blue-600 font-semibold hover:underline">Sign in</button></p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const Dashboard = ({ onNavigate }) => {
+            const [proofs, setProofs] = useState([
+                generateProof("Model prediction: Product will sell well in Q2"),
+                generateProof("Classification: High confidence recommendation"),
+                generateProof("Regression analysis: 87.5% accuracy rate")
+            ]);
+            const [newModelOutput, setNewModelOutput] = useState('');
+            const [verifyHash, setVerifyHash] = useState('');
+            const [merkleTree, setMerkleTree] = useState(null);
+            const [selectedProof, setSelectedProof] = useState(null);
+
+            useEffect(() => {
+                setMerkleTree(generateMerkleTree(2));
+            }, []);
+
+            const handleGenerateProof = (e) => {
+                e.preventDefault();
+                if (newModelOutput.trim()) {
+                    const newProof = generateProof(newModelOutput);
+                    setProofs([newProof, ...proofs]);
+                    setNewModelOutput('');
+                }
+            };
+
+            const verifiedCount = proofs.filter(p => p.status === 'verified').length;
+            const failedCount = proofs.filter(p => p.status === 'failed').length;
+            const pendingCount = proofs.filter(p => p.status === 'pending').length;
+
+            const TreeVisualization = ({ node, x = 0, y = 0, xOffset = 100 }) => {
+                if (!node) return null;
+
+                const childY = y + 100;
+                const childXOffset = xOffset / 2;
+
+                return (
+                    <g key={node.id}>
+                        {node.children.map((child, idx) => {
+                            const childX = x + (idx === 0 ? -childXOffset : childXOffset);
+                            return (
+                                <g key={child.id}>
+                                    <line x1={x} y1={y} x2={childX} y2={childY} stroke="#d1d5db" strokeWidth="2" />
+                                    <TreeVisualization node={child} x={childX} y={childY} xOffset={childXOffset} />
+                                </g>
+                            );
+                        })}
+                        <circle cx={x} cy={y} r="20" fill="#0066ff" stroke="#0052cc" strokeWidth="2" />
+                        <text x={x} y={y + 5} textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">{node.hash.substring(0, 4)}</text>
+                    </g>
+                );
+            };
+
+            return (
+                <div class="min-h-screen bg-gray-50">
+                    {/* Verification Status Overview */}
+                    <section class="bg-white border-b border-gray-200 p-8">
+                        <div class="max-w-7xl mx-auto">
+                            <h1 class="text-3xl font-bold mb-8">Proof Dashboard</h1>
+                            <div class="grid md:grid-cols-3 gap-6">
+                                <div class="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-6 border border-green-200">
+                                    <div class="text-3xl font-bold text-green-700">{verifiedCount}</div>
+                                    <div class="text-gray-600">Verified Proofs</div>
+                                </div>
+                                <div class="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-lg p-6 border border-yellow-200">
+                                    <div class="text-3xl font-bold text-yellow-700">{pendingCount}</div>
+                                    <div class="text-gray-600">Pending Verification</div>
+                                </div>
+                                <div class="bg-gradient-to-br from-red-50 to-red-100 rounded-lg p-6 border border-red-200">
+                                    <div class="text-3xl font-bold text-red-700">{failedCount}</div>
+                                    <div class="text-gray-600">Failed Proofs</div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <div class="max-w-7xl mx-auto p-8 space-y-8">
+                        {/* Generate Proof Panel */}
+                        <div class="bg-white rounded-lg border border-gray-200 p-8">
+                            <h2 class="text-2xl font-bold mb-6">Generate New Proof</h2>
+                            <form onSubmit={handleGenerateProof} class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">AI Model Output</label>
+                                    <textarea value={newModelOutput} onChange={(e) => setNewModelOutput(e.target.value)} placeholder="Paste your AI model output here..." class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none" rows="4"></textarea>
+                                </div>
+                                <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">Generate Proof</button>
+                            </form>
+                        </div>
+
+                        {/* Verify Proof Panel */}
+                        <div class="bg-white rounded-lg border border-gray-200 p-8">
+                            <h2 class="text-2xl font-bold mb-6">Verify Proof</h2>
+                            <form onSubmit={(e) => { e.preventDefault(); }} class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Proof Hash</label>
+                                    <input type="text" value={verifyHash} onChange={(e) => setVerifyHash(e.target.value)} placeholder="Paste proof hash to verify..." class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-mono text-sm" />
+                                </div>
+                                <button type="submit" class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Verify Proof</button>
+                            </form>
+                        </div>
+
+                        {/* Merkle Tree Visualization */}
+                        <div class="bg-white rounded-lg border border-gray-200 p-8">
+                            <h2 class="text-2xl font-bold mb-6">Merkle Tree Visualization</h2>
+                            <div class="overflow-x-auto bg-gray-50 rounded-lg p-8">
+                                {merkleTree && (
+                                    <svg width="600" height="400" style={{ margin: '0 auto', display: 'block' }}>
+                                        <TreeVisualization node={merkleTree} x={300} y={30} xOffset={100} />
+                                    </svg>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Recent Proofs Table */}
+                        <div class="bg-white rounded-lg border border-gray-200 p-8">
+                            <h2 class="text-2xl font-bold mb-6">Recent Proofs</h2>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm">
+                                    <thead>
+                                        <tr class="border-b border-gray-200">
+                                            <th class="text-left py-3 px-4 font-semibold text-gray-700">Hash</th>
+                                            <th class="text-left py-3 px-4 font-semibold text-gray-700">Model</th>
+                                            <th class="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
+                                            <th class="text-left py-3 px-4 font-semibold text-gray-700">Confidence</th>
+                                            <th class="text-left py-3 px-4 font-semibold text-gray-700">Timestamp</th>
+                                            <th class="text-left py-3 px-4 font-semibold text-gray-700">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {proofs.map((proof) => (
+                                            <tr key={proof.id} class="border-b border-gray-200 hover:bg-gray-50">
+                                                <td class="py-3 px-4 font-mono text-xs text-gray-600">{proof.hash.substring(0, 16)}...</td>
+                                                <td class="py-3 px-4">{proof.model}</td>
+                                                <td class="py-3 px-4">
+                                                    <span class={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${proof.status === 'verified' ? 'bg-green-100 text-green-700' : proof.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                                        {proof.status.charAt(0).toUpperCase() + proof.status.slice(1)}
+                                                    </span>
+                                                </td>
+                                                <td class="py-3 px-4">{proof.confidence}%</td>
+                                                <td class="py-3 px-4 text-gray-600">{new Date(proof.timestamp).toLocaleDateString()}</td>
+                                                <td class="py-3 px-4">
+                                                    <button onClick={() => setSelectedProof(proof)} class="text-blue-600 hover:underline">View</button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Proof Chain Timeline */}
+                        <div class="bg-white rounded-lg border border-gray-200 p-8">
+                            <h2 class="text-2xl font-bold mb-6">Proof Chain Timeline</h2>
+                            <div class="space-y-6">
+                                {proofs.slice(0, 3).map((proof, idx) => (
+                                    <div key={proof.id} class="flex gap-4">
+                                        <div class="flex flex-col items-center">
+                                            <div class={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${proof.status === 'verified' ? 'bg-green-500' : proof.status === 'pending' ? 'bg-yellow-500' : 'bg-red-500'}`}>
+                                                {proof.status === 'verified' ? 'â' : proof.status === 'pending' ? 'â±' : 'â'}
+                                            </div>
+                                            {idx < proofs.length - 1 && <div class="w-1 h-12 bg-gray-200 mt-2"></div>}
+                                        </div>
+                                        <div class="pb-6">
+                                            <h3 class="font-semibold text-gray-900">{proof.model} Model</h3>
+                                            <p class="text-sm text-gray-600 mt-1">{new Date(proof.timestamp).toLocaleString()}</p>
+                                            <p class="text-xs text-gray-500 mt-2 font-mono">{proof.hash.substring(0, 32)}...</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Proof Detail Modal */}
+                    {selectedProof && (
+                        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                            <div class="bg-white rounded-lg max-w-2xl w-full max-h-screen overflow-y-auto">
+                                <div class="p-8">
+                                    <div class="flex justify-between items-center mb-6">
+                                        <h2 class="text-2xl font-bold">Proof Details</h2>
+                                        <button onClick={() => setSelectedProof(null)} class="text-gray-500 hover:text-gray-700">â</button>
+                                    </div>
+
+                                    <div class="space-y-6">
+                                        <div class="grid md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Proof ID</label>
+                                                <p class="font-mono text-sm text-gray-600">{selectedProof.id}</p>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Model</label>
+                                                <p class="text-sm text-gray-600">{selectedProof.model}</p>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                                                <span class={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${selectedProof.status === 'verified' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                                    {selectedProof.status.charAt(0).toUpperCase() + selectedProof.status.slice(1)}
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">Confidence</label>
+                                                <p class="text-sm text-gray-600">{selectedProof.confidence}%</p>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">Merkle Root</label>
+                                            <p class="font-mono text-xs text-gray-600 break-all bg-gray-50 p-3 rounded-lg">{selectedProof.merkleRoot}</p>
+                                        </div>
+
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">Full Hash</label>
+                                            <p class="font-mono text-xs text-gray-600 break-all bg-gray-50 p-3 rounded-lg">{selectedProof.hash}</p>
+                                        </div>
+
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">Proof Path</label>
+                                            <div class="space-y-2">
+                                                {selectedProof.proofPath.map((hash, idx) => (
+                                                    <div key={idx} class="font-mono text-xs text-gray-600 bg-gray-50 p-2 rounded-lg flex items-center gap-2">
+                                                        <span class="text-gray-400">Level {idx}:</span> {hash}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                            <h3 class="font-semibold text-blue-900 mb-2">Verification Steps</h3>
+                                            <ol class="space-y-2 text-sm text-blue-800">
+                                                <li>1. Hash model output with SHA-256</li>
+                                                <li>2. Construct Merkle path from leaf to root</li>
+                                                <li>3. Verify each node's hash computation</li>
+                                                <li>4. Compare root hash with stored commitment</li>
+                                                <li>5. Return verification status and confidence</li>
+                                            </ol>
+                                        </div>
+
+                                        <button onClick={() => setSelectedProof(null)} class="w-full py-2 bg-gray-200 text-gray-800 rounded-lg font-semibold hover:bg-gray-300">Close</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const BillingPage = ({ currentUser, onNavigate }) => {
+            const [selectedPlan, setSelectedPlan] = useState('pro');
+
+            return (
+                <div class="min-h-screen bg-gray-50 py-20 px-4">
+                    <div class="max-w-6xl mx-auto">
+                        <h1 class="text-4xl font-bold text-center mb-4">Manage Your Subscription</h1>
+                        <p class="text-center text-gray-600 mb-16">Current plan: <span class="font-semibold">Pro</span></p>
+
+                        <div class="grid md:grid-cols-3 gap-8 mb-12">
+                            {[
+                                { id: 'free', name: "Free", price: "$0", limit: "100 proofs/mo", features: ["SHA-256 Merkle trees", "Basic verification", "24-hour proof retention", "Community support"], current: false },
+                                { id: 'pro', name: "Pro", price: "$49", limit: "10K proofs/mo", features: ["All Free features", "Priority verification", "90-day retention", "Email support", "API access", "Custom integrations"], current: true },
+                                { id: 'enterprise', name: "Enterprise", price: "$199", limit: "Unlimited proofs", features: ["All Pro features", "Unlimited retention", "24/7 phone support", "Dedicated account manager", "SLA guarantee", "On-premise option"], current: false }
+                            ].map((plan) => (
+                                <div key={plan.id} class={`rounded-xl p-8 border-2 ${plan.current ? 'bg-blue-50 border-blue-400' : 'bg-white border-gray-200'}`}>
+                                    {plan.current && <div class="mb-4 inline-block px-3 py-1 bg-blue-600 text-white rounded-full text-xs font-semibold">Current Plan</div>}
+                                    <h3 class="text-2xl font-bold mb-2">{plan.name}</h3>
+                                    <div class="text-4xl font-bold mb-2">{plan.price}<span class="text-lg">/mo</span></div>
+                                    <div class="text-sm text-gray-600 mb-6">{plan.limit}</div>
+                                    <ul class="space-y-3 mb-8">
+                                        {plan.features.map((f, i) => (
+                                            <li key={i} class="flex items-center gap-2 text-sm">
+                                                <span class="text-green-500">â</span> {f}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    <button class={`w-full py-2 rounded-lg font-semibold transition ${plan.current ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`} disabled={plan.current}>
+                                        {plan.current ? 'Current Plan' : 'Upgrade'}
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Billing History */}
+                        <div class="bg-white rounded-lg border border-gray-200 p-8">
+                            <h2 class="text-2xl font-bold mb-6">Billing History</h2>
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="border-b border-gray-200">
+                                        <th class="text-left py-3 px-4 font-semibold text-gray-700">Date</th>
+                                        <th class="text-left py-3 px-4 font-semibold text-gray-700">Description</th>
+                                        <th class="text-left py-3 px-4 font-semibold text-gray-700">Amount</th>
+                                        <th class="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {[
+                                        { date: '2026-03-01', desc: 'Pro Plan - Monthly', amount: '$49.00', status: 'Paid' },
+                                        { date: '2026-02-01', desc: 'Pro Plan - Monthly', amount: '$49.00', status: 'Paid' },
+                                        { date: '2026-01-01', desc: 'Pro Plan - Monthly', amount: '$49.00', status: 'Paid' }
+                                    ].map((item, idx) => (
+                                        <tr key={idx} class="border-b border-gray-200 hover:bg-gray-50">
+                                            <td class="py-3 px-4">{item.date}</td>
+                                            <td class="py-3 px-4">{item.desc}</td>
+                                            <td class="py-3 px-4 font-semibold">{item.amount}</td>
+                                            <td class="py-3 px-4"><span class="inline-block px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">{item.status}</span></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Main App Component
+        const App = () => {
+            const [currentPage, setCurrentPage] = useState('landing');
+            const [currentUser, setCurrentUser] = useState(null);
+
+            const handleNavigate = (page) => {
+                if (page === 'dashboard' || page === 'billing') {
+                    if (!currentUser) {
+                        setCurrentPage('signin');
+                        return;
+                    }
+                }
+                setCurrentPage(page);
+            };
+
+            const handleLogout = () => {
+                setCurrentUser(null);
+                setCurrentPage('landing');
+            };
+
+            const handleAuthSuccess = (user) => {
+                setCurrentUser(user);
+                setCurrentPage('dashboard');
+            };
+
+            return (
+                <>
+                    <Navbar currentUser={currentUser} onLogout={handleLogout} onNavigate={handleNavigate} />
+                    {currentPage === 'landing' && <LandingPage onNavigate={handleNavigate} />}
+                    {currentPage === 'signin' && <SignInPage onNavigate={handleNavigate} onAuthSuccess={handleAuthSuccess} />}
+                    {currentPage === 'signup' && <SignUpPage onNavigate={handleNavigate} onAuthSuccess={handleAuthSuccess} />}
+                    {currentPage === 'dashboard' && <Dashboard onNavigate={handleNavigate} />}
+                    {currentPage === 'billing' && <BillingPage currentUser={currentUser} onNavigate={handleNavigate} />}
+                </>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
