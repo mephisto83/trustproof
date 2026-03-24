@@ -1,16 +1,15 @@
 {
   "hosting": {
-    "public": "public",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [{"source": "**", "destination": "/index.html"}],
-    "headers": [
+    "public": "dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
       {
-        "source": "/index.html",
-        "headers": [{"key": "Cache-Control", "value": "no-cache, no-store, must-revalidate"}]
-      },
-      {
-        "source": "**/*.@(css|js|svg|png|jpg|jpeg|gif|woff|woff2|ttf|eot)",
-        "headers": [{"key": "Cache-Control", "value": "max-age=31536000, immutable"}]
+        "source": "**",
+        "destination": "/index.html"
       }
     ]
   }
