@@ -1,9 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import {
-  onAuthStateChanged,
-  User as FirebaseUser,
-  signOut,
-} from 'firebase/auth';
+import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { auth } from '@/firebase';
 import { User } from '@/types';
 
@@ -21,18 +17,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!auth) {
-      setLoading(false);
-      return;
-    }
-
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser: FirebaseUser | null) => {
       if (firebaseUser) {
         setUser({
           id: firebaseUser.uid,
           email: firebaseUser.email || '',
-          displayName: firebaseUser.displayName || '',
-          photoURL: firebaseUser.photoURL || '',
+          name: firebaseUser.displayName || '',
           plan: 'free',
           createdAt: firebaseUser.metadata.creationTime
             ? new Date(firebaseUser.metadata.creationTime)
